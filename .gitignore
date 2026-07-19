@@ -1,0 +1,13 @@
+# Node.js dependencies
+node_modules/
+
+# Local environment variables
+.env
+
+# ESP32 project files (ignored so only backend is in git)
+Freshpod_Payment/
+Newcode_Mag_20.09.2025.ino
+
+# Temporary or system files
+.DS_Store
+Thumbs.db
