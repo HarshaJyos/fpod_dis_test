@@ -85,7 +85,7 @@ app.post('/api/payment/create', async (req, res) => {
       customer: {
         name: 'FreshPod User',
         email: 'customer@freshpod.in',
-        contact: '+919999999999'
+        contact: '+919876543210'
       },
       notify: {
         sms: false,
