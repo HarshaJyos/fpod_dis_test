@@ -59,50 +59,85 @@ app.get('/', (req, res) => {
   res.json({ status: 'active', service: 'FreshPod Direct Payment API' });
 });
 
-// Global states to capture payment success notifications from webhooks
-let paymentReceived = false;
-let lastPaymentTime = 0;
-
-// Webhook Receiver Endpoint (Target: https://www.coreblock.in/api/payment/webhook)
+// Webhook Receiver Endpoint (Optional backup)
 app.post('/api/payment/webhook', (req, res) => {
   const event = req.body.event;
   console.log(`[WEBHOOK] Received event from Razorpay: ${event}`);
-  
-  if (event === 'payment.captured' || event === 'payment.authorized') {
-    paymentReceived = true;
-    lastPaymentTime = Date.now();
-    console.log(`[WEBHOOK] SUCCESS: Payment successfully recorded at ${new Date(lastPaymentTime).toISOString()}`);
-  }
-  
   res.json({ status: 'ok' });
 });
 
-// Create static Payment Link session
+// Create dynamic Payment Link with fixed, non-editable amount
 app.post('/api/payment/create', async (req, res) => {
   console.log('[DEBUG] Received POST /api/payment/create');
-  
-  const amount = req.body.amount || process.env.QR_AMOUNT || 50;
+  console.log('[DEBUG] Request body:', JSON.stringify(req.body));
 
-  // Immediately return the static link to bypass dynamic API latency and ensure 100% compile/link stability
-  res.json({
-    qr_id: 'static_link',
-    upi_intent: 'https://rzp.io/rzp/u0mFBFz', // User's static payment page URL
-    amount: amount
-  });
+  try {
+    const amount = req.body.amount || process.env.QR_AMOUNT || 50;
+    const machineId = req.body.machine_id || 'FP_MACHINE_01';
+
+    console.log(`[DEBUG] Creating dynamic Razorpay Payment Link: Amount = INR ${amount}`);
+
+    // Create the payment link
+    const paymentLink = await razorpay.paymentLink.create({
+      amount: Math.round(parseFloat(amount) * 100), // convert to paise
+      currency: 'INR',
+      accept_partial: false,
+      description: `FreshPod Payment - Machine ${machineId}`,
+      customer: {
+        name: 'FreshPod User',
+        email: 'support@coreblock.in',
+        contact: '+919032185199'
+      },
+      notify: {
+        sms: false,
+        email: false
+      },
+      reminder_enable: false,
+      notes: {
+        machine_id: machineId
+      }
+    });
+
+    console.log(`[DEBUG] Razorpay Payment Link created: ${paymentLink.id} -> ${paymentLink.short_url}`);
+
+    res.json({
+      qr_id: paymentLink.id,
+      upi_intent: paymentLink.short_url,
+      amount: amount
+    });
+  } catch (error) {
+    console.error('[DEBUG] Failed to create dynamic Payment Link:', error);
+    res.status(502).json({
+      error: 'Bad Gateway',
+      message: 'Failed to create Payment Link via Razorpay API',
+      details: error.message || error
+    });
+  }
 });
 
-// Fetch payment status directly from local webhook state (45-second sliding window)
+// Fetch payment status directly from Razorpay (stateless polling)
 app.get('/api/payment/status', async (req, res) => {
-  const now = Date.now();
-  // Return 'paid' if a success webhook has been received in the last 45 seconds
-  const isPaid = paymentReceived && (now - lastPaymentTime < 45000);
+  const { qr_id } = req.query;
+  console.log(`[DEBUG] Received GET /api/payment/status for Payment Link ID: ${qr_id}`);
 
-  console.log(`[DEBUG] Received GET /api/payment/status. isPaid: ${isPaid} (Last payment was ${now - lastPaymentTime}ms ago)`);
+  if (!qr_id || qr_id === 'static_link') {
+    return res.json({ qr_id: qr_id, status: 'pending' });
+  }
 
-  res.json({
-    qr_id: 'static_link',
-    status: isPaid ? 'paid' : 'pending'
-  });
+  try {
+    const paymentLink = await razorpay.paymentLink.fetch(qr_id);
+    const isPaid = paymentLink.status === 'paid';
+    
+    console.log(`[DEBUG] Direct Razorpay check - ID: ${qr_id}, Status: ${paymentLink.status}`);
+
+    res.json({
+      qr_id: qr_id,
+      status: isPaid ? 'paid' : 'pending'
+    });
+  } catch (error) {
+    console.error(`[DEBUG] Error checking status for ID ${qr_id}:`, error.message || error);
+    res.status(500).json({ error: 'Failed to fetch status from Razorpay', details: error.message || error });
+  }
 });
 
 // Render a premium administrative dashboard displaying transaction logs
