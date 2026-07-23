@@ -162,6 +162,14 @@ app.get('/api/payment/status', async (req, res) => {
     
     console.log(`[DEBUG] Direct Razorpay check - ID: ${qr_id}, Status: ${paymentLink.status}`);
 
+    if (isPaid) {
+      // Invalidate the cache immediately upon successful payment detection
+      if (currentPaymentLink && currentPaymentLink.id === qr_id) {
+        console.log(`[STATUS] Link ${qr_id} has been paid. Invalidating cache immediately.`);
+        currentPaymentLink = null;
+      }
+    }
+
     res.json({
       qr_id: qr_id,
       status: isPaid ? 'paid' : 'pending'
