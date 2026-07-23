@@ -28,13 +28,13 @@ function shortenUpiUrl(urlStr) {
   try {
     const queryString = urlStr.split('?')[1];
     if (!queryString) return urlStr;
-    
+
     const params = new URLSearchParams(queryString);
     const pa = params.get('pa');
     const pn = params.get('pn');
     const am = params.get('am');
     const tr = params.get('tr');
-    
+
     if (pa && pn && am && tr) {
       const shortened = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tr=${tr}`;
       console.log(`[DEBUG] Shortened UPI URL: ${shortened} (Length: ${shortened.length} chars)`);
@@ -84,8 +84,8 @@ app.post('/api/payment/create', async (req, res) => {
       description: `FreshPod Payment - Machine ${machine_id}`,
       customer: {
         name: 'FreshPod User',
-        email: 'customer@freshpod.in',
-        contact: '+919876543210'
+        email: 'support@coreblock.in',
+        contact: '+919032185199'
       },
       notify: {
         sms: false,
@@ -105,10 +105,10 @@ app.post('/api/payment/create', async (req, res) => {
       console.log(`[DEBUG] Short URL: ${paymentLink.short_url}`);
     } catch (rzpError) {
       console.error('[DEBUG] Razorpay API call failed:', rzpError);
-      return res.status(502).json({ 
-        error: 'Bad Gateway', 
-        message: 'Failed to create Payment Link via Razorpay API', 
-        details: rzpError.message || rzpError 
+      return res.status(502).json({
+        error: 'Bad Gateway',
+        message: 'Failed to create Payment Link via Razorpay API',
+        details: rzpError.message || rzpError
       });
     }
 
@@ -138,7 +138,7 @@ app.get('/api/payment/status', async (req, res) => {
   try {
     console.log(`[DEBUG] Querying Razorpay for Payment Link ID: ${qr_id}...`);
     const paymentLink = await razorpay.paymentLink.fetch(qr_id);
-    
+
     const isPaid = paymentLink.status === 'paid';
     console.log(`[DEBUG] Query result - ID: ${qr_id}, Status: ${paymentLink.status}`);
 
