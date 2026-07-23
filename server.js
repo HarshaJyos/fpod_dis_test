@@ -48,8 +48,8 @@ function shortenUpiUrl(urlStr) {
 
 // Initialize Razorpay instance
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_TD1URCZFZQYVar',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || 'Cnet67kJGckHvtTDfb0BRo9W'
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_TGx9X5Tby0KVB8',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || '9GizZR3GFrYMhKAwWESLSBnn'
 });
 
 console.log(`[DEBUG] Razorpay Key ID: ${process.env.RAZORPAY_KEY_ID ? 'Loaded from .env' : 'Using default test ID'}`);
