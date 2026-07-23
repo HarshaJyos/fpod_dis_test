@@ -23,6 +23,29 @@ process.on('uncaughtException', (err) => {
   console.error('CRITICAL: Uncaught Exception thrown:', err);
 });
 
+// Helper to shorten the UPI URL from Razorpay to fit in small DWIN basic graphic buffers
+function shortenUpiUrl(urlStr) {
+  try {
+    const queryString = urlStr.split('?')[1];
+    if (!queryString) return urlStr;
+    
+    const params = new URLSearchParams(queryString);
+    const pa = params.get('pa');
+    const pn = params.get('pn');
+    const am = params.get('am');
+    const tr = params.get('tr');
+    
+    if (pa && pn && am && tr) {
+      const shortened = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tr=${tr}`;
+      console.log(`[DEBUG] Shortened UPI URL: ${shortened} (Length: ${shortened.length} chars)`);
+      return shortened;
+    }
+  } catch (e) {
+    console.error('[DEBUG] Failed to parse UPI URL for shortening:', e);
+  }
+  return urlStr;
+}
+
 // Initialize Razorpay instance
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_TD1URCZFZQYVar',
@@ -128,8 +151,9 @@ app.post('/api/payment/create', async (req, res) => {
       });
     }
 
-    const upiIntent = decoded.data;
-    console.log(`[DEBUG] Decoded UPI String successfully: ${upiIntent}`);
+    const originalUpiIntent = decoded.data;
+    console.log(`[DEBUG] Decoded Original UPI String successfully: ${originalUpiIntent}`);
+    const upiIntent = shortenUpiUrl(originalUpiIntent);
 
     // 4. Return to ESP32
     res.json({
