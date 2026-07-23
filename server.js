@@ -11,8 +11,9 @@ const PORT = process.env.PORT || 3000;
 // Enable CORS for testing
 app.use(cors());
 
-// Configure Express to parse JSON
+// Configure Express to parse JSON and Form data
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Global handlers to capture any async or library crashes and log them
 process.on('unhandledRejection', (reason, promise) => {
@@ -59,6 +60,10 @@ app.get('/', (req, res) => {
   res.json({ status: 'active', service: 'FreshPod Direct Payment API' });
 });
 
+// Global states for caching the current payment link and current amount
+let currentPaymentLink = null;
+let currentAmount = process.env.QR_AMOUNT || 50;
+
 // Webhook Receiver Endpoint (Optional backup)
 app.post('/api/payment/webhook', (req, res) => {
   const event = req.body.event;
@@ -66,48 +71,74 @@ app.post('/api/payment/webhook', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Create dynamic Payment Link with fixed, non-editable amount
+// Update current payment amount from dashboard config
+app.post('/api/config/amount', (req, res) => {
+  const newAmount = parseInt(req.body.amount);
+  if (newAmount > 0) {
+    currentAmount = newAmount;
+    currentPaymentLink = null; // Invalidate current cached link to generate a new one with the updated amount
+    console.log(`[CONFIG] Payment amount updated to INR ${currentAmount}. Invalidating cached payment link...`);
+    res.redirect('/dashboard');
+  } else {
+    res.status(400).send('Invalid amount value');
+  }
+});
+
+// Create/Fetch cached Payment Link
 app.post('/api/payment/create', async (req, res) => {
   console.log('[DEBUG] Received POST /api/payment/create');
-  console.log('[DEBUG] Request body:', JSON.stringify(req.body));
-
+  
   try {
-    const amount = process.env.QR_AMOUNT || 50;
     const machineId = req.body.machine_id || 'FP_MACHINE_01';
 
-    console.log(`[DEBUG] Creating dynamic Razorpay Payment Link: Amount = INR ${amount}`);
-
-    // Create the payment link
-    const paymentLink = await razorpay.paymentLink.create({
-      upi_link: true, // Optimizes the checkout specifically for UPI deep linking
-      amount: Math.round(parseFloat(amount) * 100), // convert to paise
-      currency: 'INR',
-      accept_partial: false,
-      description: `FreshPod Payment - Machine ${machineId}`,
-      customer: {
-        name: 'FreshPod User',
-        email: 'support@coreblock.in',
-        contact: '+919032185199'
-      },
-      notify: {
-        sms: false,
-        email: false
-      },
-      reminder_enable: false,
-      notes: {
-        machine_id: machineId
+    // Check if the current cached link has already been paid or canceled. If so, invalidate it!
+    if (currentPaymentLink) {
+      try {
+        console.log(`[CACHE] Checking status of cached link: ${currentPaymentLink.id}...`);
+        const statusCheck = await razorpay.paymentLink.fetch(currentPaymentLink.id);
+        if (statusCheck.status === 'paid' || statusCheck.status === 'cancelled' || statusCheck.status === 'expired') {
+          console.log(`[CACHE] Link ${currentPaymentLink.id} is already ${statusCheck.status}. Invalidating cache...`);
+          currentPaymentLink = null;
+        }
+      } catch (err) {
+        console.error('[CACHE] Error validating cached link status. Invalidating to be safe:', err.message);
+        currentPaymentLink = null;
       }
-    });
+    }
 
-    console.log(`[DEBUG] Razorpay Payment Link created: ${paymentLink.id} -> ${paymentLink.short_url}`);
+    // If no active cached link exists, generate a fresh one
+    if (!currentPaymentLink) {
+      console.log(`[CACHE] Generating fresh Payment Link for amount: INR ${currentAmount}`);
+      const paymentLink = await razorpay.paymentLink.create({
+        upi_link: true, // Optimizes the checkout specifically for UPI deep linking
+        amount: Math.round(parseFloat(currentAmount) * 100), // convert to paise
+        currency: 'INR',
+        accept_partial: false,
+        description: `FreshPod Payment - Machine ${machineId}`,
+        customer: {
+          name: 'FreshPod User',
+          email: 'support@coreblock.in',
+          contact: '+919032185199'
+        },
+        notify: {
+          sms: false,
+          email: false
+        },
+        reminder_enable: false,
+        notes: {
+          machine_id: machineId
+        }
+      });
+      currentPaymentLink = paymentLink;
+    }
 
     res.json({
-      qr_id: paymentLink.id,
-      upi_intent: paymentLink.short_url,
-      amount: amount
+      qr_id: currentPaymentLink.id,
+      upi_intent: currentPaymentLink.short_url,
+      amount: currentAmount
     });
   } catch (error) {
-    console.error('[DEBUG] Failed to create dynamic Payment Link:', error);
+    console.error('[DEBUG] Failed to resolve Payment Link:', error);
     res.status(502).json({
       error: 'Bad Gateway',
       message: 'Failed to create Payment Link via Razorpay API',
@@ -128,7 +159,7 @@ app.get('/api/payment/status', async (req, res) => {
   try {
     const paymentLink = await razorpay.paymentLink.fetch(qr_id);
     const isPaid = paymentLink.status === 'paid';
-
+    
     console.log(`[DEBUG] Direct Razorpay check - ID: ${qr_id}, Status: ${paymentLink.status}`);
 
     res.json({
@@ -198,7 +229,7 @@ app.get('/dashboard', async (req, res) => {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
         h1 {
             font-size: 2.2rem;
@@ -234,9 +265,33 @@ app.get('/dashboard', async (req, res) => {
             border: 1px solid var(--border-color);
             backdrop-filter: blur(16px);
             border-radius: 20px;
-            padding: 20px;
+            padding: 25px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
             overflow-x: auto;
+        }
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .input-group label {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+        .input-field {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 15px;
+            color: white;
+            font-size: 1rem;
+            width: 120px;
+            font-family: inherit;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: #06b6d4;
         }
         table {
             width: 100%;
@@ -301,6 +356,17 @@ app.get('/dashboard', async (req, res) => {
             </div>
             <a href="/api/payments/export" class="btn">Export to CSV (Excel)</a>
         </header>
+
+        <!-- Kiosk Config Form -->
+        <div class="card" style="margin-bottom: 30px;">
+            <h2 style="margin-top: 0; margin-bottom: 15px; font-size: 1.3rem; font-weight: 600; color: #fff;">Kiosk Settings</h2>
+            <form action="/api/config/amount" method="POST" class="input-group">
+                <label for="amount">Payment Price (INR):</label>
+                <input type="number" id="amount" name="amount" value="${currentAmount}" min="1" step="1" required class="input-field">
+                <button type="submit" class="btn" style="padding: 10px 20px; font-size: 0.95rem;">Update Price</button>
+            </form>
+        </div>
+
         <div class="card">
             <table>
                 <thead>
@@ -336,7 +402,7 @@ app.get('/api/payments/export', async (req, res) => {
     console.log('[DEBUG] Querying Razorpay for exporting payments...');
     const response = await razorpay.payments.all({ count: 100 });
     const payments = response.items || [];
-
+    
     let csv = 'Payment ID,Date,Amount (INR),Method,Status,Customer Email,Customer Contact\n';
     payments.forEach(p => {
       const date = new Date(p.created_at * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
@@ -345,7 +411,7 @@ app.get('/api/payments/export', async (req, res) => {
       const contact = p.contact || 'N/A';
       csv += `"${p.id}","${date}",${amount},"${p.method}","${p.status}","${email}","${contact}"\n`;
     });
-
+    
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=freshpod_payments.csv');
     res.send(csv);
