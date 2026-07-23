@@ -72,7 +72,7 @@ app.post('/api/payment/create', async (req, res) => {
   console.log('[DEBUG] Request body:', JSON.stringify(req.body));
 
   try {
-    const amount = req.body.amount || process.env.QR_AMOUNT || 50;
+    const amount = process.env.QR_AMOUNT || 50;
     const machineId = req.body.machine_id || 'FP_MACHINE_01';
 
     console.log(`[DEBUG] Creating dynamic Razorpay Payment Link: Amount = INR ${amount}`);
@@ -127,7 +127,7 @@ app.get('/api/payment/status', async (req, res) => {
   try {
     const paymentLink = await razorpay.paymentLink.fetch(qr_id);
     const isPaid = paymentLink.status === 'paid';
-    
+
     console.log(`[DEBUG] Direct Razorpay check - ID: ${qr_id}, Status: ${paymentLink.status}`);
 
     res.json({
@@ -335,7 +335,7 @@ app.get('/api/payments/export', async (req, res) => {
     console.log('[DEBUG] Querying Razorpay for exporting payments...');
     const response = await razorpay.payments.all({ count: 100 });
     const payments = response.items || [];
-    
+
     let csv = 'Payment ID,Date,Amount (INR),Method,Status,Customer Email,Customer Contact\n';
     payments.forEach(p => {
       const date = new Date(p.created_at * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
@@ -344,7 +344,7 @@ app.get('/api/payments/export', async (req, res) => {
       const contact = p.contact || 'N/A';
       csv += `"${p.id}","${date}",${amount},"${p.method}","${p.status}","${email}","${contact}"\n`;
     });
-    
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=freshpod_payments.csv');
     res.send(csv);
