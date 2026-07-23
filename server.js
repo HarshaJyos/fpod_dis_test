@@ -79,6 +79,7 @@ app.post('/api/payment/create', async (req, res) => {
 
     // Create the payment link
     const paymentLink = await razorpay.paymentLink.create({
+      upi_link: true, // Optimizes the checkout specifically for UPI deep linking
       amount: Math.round(parseFloat(amount) * 100), // convert to paise
       currency: 'INR',
       accept_partial: false,
