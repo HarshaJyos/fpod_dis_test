@@ -65,14 +65,16 @@ app.post('/api/payment/create', async (req, res) => {
   console.log('[DEBUG] Request body:', JSON.stringify(req.body));
 
   try {
-    const { amount, machine_id } = req.body;
+    const { machine_id } = req.body;
+    // Prioritize request body, fallback to Vercel env variable, default to 69
+    const amount = req.body.amount || process.env.QR_AMOUNT || 69;
 
-    if (!amount || !machine_id) {
-      console.warn('[DEBUG] Validation failed: amount or machine_id is missing');
-      return res.status(400).json({ error: 'Missing amount or machine_id' });
+    if (!machine_id) {
+      console.warn('[DEBUG] Validation failed: machine_id is missing');
+      return res.status(400).json({ error: 'Missing machine_id' });
     }
 
-    console.log(`[DEBUG] Creating QR Code: Machine = ${machine_id}, Amount = INR ${amount}`);
+    console.log(`[DEBUG] Creating QR Code: Machine = ${machine_id}, Resolved Amount = INR ${amount}`);
 
     // 1. Call Razorpay QR Codes API to create a single-use QR code
     const qrOptions = {
