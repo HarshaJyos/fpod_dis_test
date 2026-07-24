@@ -11,8 +11,8 @@
 // ==========================================
 // CONFIGURATION (Adjust these as needed)
 // ==========================================
-#define WIFI_SSID "DARLING"
-#define WIFI_PASSWORD "12345678"
+#define WIFI_SSID "Freshpod"
+#define WIFI_PASSWORD "passw0rd"
 
 // Machine ID & Backend Config
 #define MACHINE_ID "FP_MACHINE_01"
@@ -70,6 +70,7 @@ unsigned long lastPollingTime = 0;
 String currentQrId = "";
 String currentUpiIntent = "";
 bool paymentSuccessReceived = false;
+bool qrPrefetched = false;
 
 // Global objects
 DFPlayerMini_Fast myMP3;
@@ -95,7 +96,8 @@ void setup() {
   // Initialize DWIN display
   dgusInit(dwinSerialPort, DWIN_RX_PIN, DWIN_TX_PIN, 115200);
   delay(100);
-  dgusShowPage(12); // Show Screen 12 (Welcome/Calibration screen) during initialization
+  dgusShowPage(
+      12); // Show Screen 12 (Welcome/Calibration screen) during initialization
   delay(100);
 
   // Initialize DFPlayer
@@ -157,7 +159,15 @@ void loop() {
     dgusShowPage(PAGE_QR_CODE);
     dgusClearQrArea(); // Clear the QR box to white during generation
 
-    if (requestNewPayment()) {
+    if (qrPrefetched) {
+      Serial.println("[PREFETCH] Using pre-fetched payment QR code intent.");
+      drawQRCode(currentUpiIntent.c_str());
+      qrPrefetched = false; // Consume the prefetch
+      paymentSuccessReceived = false;
+      stateTimer = millis(); // Start payment timeout timer
+      lastPollingTime = millis();
+      currentState = STATE_WAIT_FOR_PAYMENT;
+    } else if (requestNewPayment()) {
       Serial.println("QR generated successfully. Rendering...");
       drawQRCode(currentUpiIntent.c_str());
       paymentSuccessReceived = false;
@@ -165,22 +175,16 @@ void loop() {
       lastPollingTime = millis();
       currentState = STATE_WAIT_FOR_PAYMENT;
     } else {
-      Serial.println("[WARNING] Payment creation failed. Checking local "
-                     "connection or configuration.");
-      Serial.println("[WARNING] Rendering a fallback test QR code to confirm "
-                     "display drawing pipeline is working...");
-
-      // Render a local test QR code as a visual fallback so the user knows
-      // drawing works
+      Serial.println(
+          "[WARNING] Payment creation failed. Retrying in 5 seconds...");
+      // Render a fallback QR so the screen doesn't show a blank box
       drawQRCode("upi://"
-                 "pay?pa=test@upi&pn=FreshPodTest&am=1.00&tn="
-                 "FallbackDrawingVerification");
-
-      Serial.println("[WARNING] Showing test QR code. Retrying server "
-                     "connection in 10 seconds...");
-      delay(10000);
+                 "pay?pa=support@coreblock.in&pn=FreshPod&am=50.00&tn="
+                 "OfflineFallback");
+      delay(5000);
       stateTimer = millis();
-      currentState = STATE_WELCOME; // Loop back to welcome to refresh
+      // Keep state as STATE_REQUEST_PAYMENT to retry directly without flashing
+      // the welcome page
     }
     break;
 
@@ -213,9 +217,18 @@ void loop() {
     // Run the detailed cleaning process (blocking sequence)
     startCleaningProcess();
 
-    // Transition directly to request payment to generate a fresh QR code on Screen 0
+    // Route state machine directly based on prefetch success
     stateTimer = millis();
-    currentState = STATE_REQUEST_PAYMENT;
+    if (qrPrefetched) {
+      Serial.println("[LOOP] QR was pre-drawn successfully. Entering STATE_WAIT_FOR_PAYMENT directly.");
+      qrPrefetched = false; // Consume/reset prefetch flag
+      paymentSuccessReceived = false;
+      lastPollingTime = millis();
+      currentState = STATE_WAIT_FOR_PAYMENT;
+    } else {
+      Serial.println("[LOOP] QR prefetch failed. Fallback to requesting payment synchronously.");
+      currentState = STATE_REQUEST_PAYMENT;
+    }
     break;
   }
 }
@@ -538,6 +551,22 @@ void startCleaningProcess() {
   dgusShowPage(PAGE_THANK_YOU);
   delay(1000);
   myMP3.play(TRACK_THANK_YOU);
+
+  // Prefetch the next payment QR link in the background during the static
+  // "Thank You" screen display
+  Serial.println("[PREFETCH] Prefetching next payment link from backend...");
+  if (requestNewPayment()) {
+    qrPrefetched = true;
+    Serial.println("[PREFETCH] Success! QR code prefetched. Pre-drawing onto Page 0...");
+    // Clear and draw the QR code on Page 0 in the background!
+    dgusClearQrArea();
+    drawQRCode(currentUpiIntent.c_str());
+  } else {
+    qrPrefetched = false;
+    Serial.println(
+        "[PREFETCH] Warning: prefetch failed. Will fetch synchronously later.");
+  }
+
   delay(7000);
 
   Serial.println("=== CLEANING CYCLE COMPLETE ===");
