@@ -84,6 +84,7 @@ void drawQRCode(const char *text);
 bool requestNewPayment();
 void pollPaymentStatus();
 void connectWiFi();
+void dgusShowLoadingIndicator();
 
 void setup() {
   Serial.begin(9600);
@@ -177,10 +178,7 @@ void loop() {
     } else {
       Serial.println(
           "[WARNING] Payment creation failed. Retrying in 5 seconds...");
-      // Render a fallback QR so the screen doesn't show a blank box
-      drawQRCode("upi://"
-                 "pay?pa=support@coreblock.in&pn=FreshPod&am=50.00&tn="
-                 "OfflineFallback");
+      dgusShowLoadingIndicator();
       delay(5000);
       stateTimer = millis();
       // Keep state as STATE_REQUEST_PAYMENT to retry directly without flashing
@@ -203,13 +201,12 @@ void loop() {
       pollPaymentStatus();
     }
 
-    // 3. Expiration/Timeout (Return to welcome screen after timeout limit)
+    // 3. Expiration/Timeout (Refresh QR code directly without welcome screen flash)
     if (millis() - stateTimer >= QR_TIMEOUT_MS) {
-      Serial.println("Payment QR code expired. Returning to Welcome screen.");
-      dgusShowPage(PAGE_WELCOME);
-      myMP3.play(TRACK_WELCOME);
+      Serial.println("Payment QR code expired. Refreshing QR code directly...");
+      dgusShowLoadingIndicator();
       stateTimer = millis();
-      currentState = STATE_WELCOME;
+      currentState = STATE_REQUEST_PAYMENT;
     }
     break;
 
@@ -310,8 +307,18 @@ void drawQRCode(const char *text) {
   // Draw all spans together via RAM buffering to prevent flicker and keep
   // drawings persistent
   dgusDrawRects(spansBuffer, spanCount);
-
   Serial.println("[DEBUG] DWIN rendering completed.");
+}
+
+// Clears the QR area and draws a loading progress bar inside the box
+void dgusShowLoadingIndicator() {
+  Serial.println("[DWIN] Drawing loading progress indicator to screen...");
+  dgusClearQrArea();
+  // Draw progress bar outline (X: 325 -> 475, Y: 240 -> 260)
+  dgusDrawFilledRect(325, 240, 475, 260, COLOR_BLACK);
+  dgusDrawFilledRect(327, 242, 473, 258, COLOR_WHITE);
+  // Draw loading fill (Pastel steel blue color: 0x3186)
+  dgusDrawFilledRect(332, 245, 400, 255, 0x3186);
 }
 
 // Call backend to create a dynamic QR Code session
