@@ -213,11 +213,9 @@ void loop() {
     // Run the detailed cleaning process (blocking sequence)
     startCleaningProcess();
 
-    // Return to welcome state after cycle completes
-    dgusShowPage(PAGE_WELCOME);
-    myMP3.play(TRACK_WELCOME);
+    // Transition directly to request payment to generate a fresh QR code on Screen 0
     stateTimer = millis();
-    currentState = STATE_WELCOME;
+    currentState = STATE_REQUEST_PAYMENT;
     break;
   }
 }
