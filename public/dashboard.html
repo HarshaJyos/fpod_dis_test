@@ -261,15 +261,8 @@
         import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyA03ON8h3-Txnn12LsqwinTZMzDbddd1nc",
-            authDomain: "freshpod-901ed.firebaseapp.com",
-            projectId: "freshpod-901ed",
-            storageBucket: "freshpod-901ed.firebasestorage.app",
-            messagingSenderId: "209820777199",
-            appId: "1:209820777199:web:2ac6487aad0df9b521b91a",
-            measurementId: "G-K2G9M145ZH"
-        };
+        const configRes = await fetch('/api/firebase-config');
+        const firebaseConfig = await configRes.json();
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
