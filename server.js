@@ -186,6 +186,7 @@ app.get('/dashboard', async (req, res) => {
     console.log('[DEBUG] Querying Razorpay for payment list...');
     const response = await razorpay.payments.all({ count: 100 });
     const payments = response.items || [];
+    const isUpdated = req.query.updated === 'true';
 
     const rows = payments.map(p => {
       const date = new Date(p.created_at * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
@@ -194,12 +195,12 @@ app.get('/dashboard', async (req, res) => {
       const contact = p.contact || p.email || 'N/A';
       return `
         <tr>
-          <td style="color: #94a3b8;">${date}</td>
-          <td style="font-family: monospace; color: #00d2ff;">${p.id}</td>
+          <td>${date}</td>
+          <td class="tx-id">${p.id}</td>
           <td class="amount">₹${amount}</td>
           <td style="text-transform: capitalize;">${p.method}</td>
           <td><span class="badge badge-${statusClass}">${p.status}</span></td>
-          <td>${contact}</td>
+          <td class="contact-info">${contact}</td>
         </tr>
       `;
     }).join('\n');
@@ -211,26 +212,34 @@ app.get('/dashboard', async (req, res) => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FreshPod Transaction Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0d0f14;
-            --card-bg: rgba(22, 28, 38, 0.7);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --text-color: #e2e8f0;
-            --success-color: #10b981;
-            --failed-color: #ef4444;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --accent-color: #2563eb;
+            --accent-hover: #1d4ed8;
+            --success-bg: #dcfce7;
+            --success-text: #15803d;
+            --failed-bg: #fee2e2;
+            --failed-text: #b91c1c;
+            --warning-bg: #fef3c7;
+            --warning-text: #b45309;
         }
         body {
             font-family: 'Outfit', sans-serif;
-            background: radial-gradient(circle at top left, #1a2035 0%, var(--bg-color) 70%);
-            color: var(--text-color);
+            background-color: var(--bg-color);
+            color: var(--text-primary);
             margin: 0;
             padding: 40px 20px;
             min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1100px;
             margin: 0 auto;
         }
         header {
@@ -240,118 +249,159 @@ app.get('/dashboard', async (req, res) => {
             margin-bottom: 30px;
         }
         h1 {
-            font-size: 2.2rem;
+            font-size: 1.8rem;
             font-weight: 700;
             margin: 0;
-            background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: var(--text-primary);
+            letter-spacing: -0.5px;
         }
         .subtitle {
-            color: #64748b;
-            margin-top: 5px;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 4px;
+            font-family: 'Inter', sans-serif;
         }
         .btn {
-            background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
-            color: white;
+            background-color: var(--accent-color);
+            color: #ffffff;
             border: none;
-            padding: 12px 24px;
-            font-size: 1rem;
+            padding: 10px 20px;
+            font-size: 0.9rem;
             font-weight: 600;
-            border-radius: 12px;
+            border-radius: 8px;
             cursor: pointer;
             text-decoration: none;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 20px rgba(79, 70, 229, 0.3);
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            display: inline-flex;
+            align-items: center;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
         }
         .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 25px rgba(79, 70, 229, 0.5);
+            background-color: var(--accent-hover);
+        }
+        .btn-secondary {
+            background-color: #ffffff;
+            color: var(--text-secondary);
+            border: 1px solid #cbd5e1;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        .btn-secondary:hover {
+            background-color: #f1f5f9;
+            color: var(--text-primary);
         }
         .card {
-            background: var(--card-bg);
+            background-color: var(--card-bg);
             border: 1px solid var(--border-color);
-            backdrop-filter: blur(16px);
-            border-radius: 20px;
-            padding: 25px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
             overflow-x: auto;
+        }
+        .settings-card {
+            margin-bottom: 24px;
+        }
+        .alert {
+            background-color: var(--success-bg);
+            color: var(--success-text);
+            padding: 12px 18px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-bottom: 24px;
+            border: 1px solid rgba(21, 128, 61, 0.15);
+            font-family: 'Inter', sans-serif;
         }
         .input-group {
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 12px;
         }
         .input-group label {
             font-size: 0.9rem;
-            color: #94a3b8;
+            color: var(--text-secondary);
             font-weight: 600;
         }
         .input-field {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 10px 15px;
-            color: white;
-            font-size: 1rem;
-            width: 120px;
-            font-family: inherit;
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            width: 100px;
+            font-family: 'Inter', sans-serif;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+            transition: border-color 0.15s ease;
         }
         .input-field:focus {
             outline: none;
-            border-color: #06b6d4;
+            border-color: var(--accent-color);
         }
         table {
             width: 100%;
             border-collapse: collapse;
             text-align: left;
+            font-family: 'Inter', sans-serif;
         }
         th {
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #64748b;
-            padding: 15px 20px;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            padding: 14px 18px;
             border-bottom: 1px solid var(--border-color);
+            background-color: #f8fafc;
+            font-weight: 600;
         }
         td {
-            padding: 16px 20px;
+            padding: 14px 18px;
             border-bottom: 1px solid var(--border-color);
-            font-size: 0.95rem;
+            font-size: 0.9rem;
+            color: var(--text-primary);
         }
         tr:last-child td {
             border-bottom: none;
         }
         tr:hover td {
-            background: rgba(255, 255, 255, 0.01);
+            background-color: #f8fafc;
+        }
+        .tx-id {
+            font-family: monospace;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
         }
         .badge {
-            padding: 4px 10px;
+            padding: 4px 8px;
             border-radius: 6px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;
         }
         .badge-captured {
-            background: rgba(16, 185, 129, 0.12);
-            color: var(--success-color);
+            background-color: var(--success-bg);
+            color: var(--success-text);
         }
         .badge-failed {
-            background: rgba(239, 68, 68, 0.12);
-            color: var(--failed-color);
+            background-color: var(--failed-bg);
+            color: var(--failed-text);
         }
         .badge-authorized {
-            background: rgba(245, 158, 11, 0.12);
-            color: #f59e0b;
+            background-color: var(--warning-bg);
+            color: var(--warning-text);
         }
         .badge-other {
-            background: rgba(100, 116, 139, 0.12);
-            color: #94a3b8;
+            background-color: #f1f5f9;
+            color: var(--text-secondary);
         }
         .amount {
-            font-family: monospace;
-            font-size: 1.05rem;
-            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .contact-info {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
         }
     </style>
 </head>
@@ -362,19 +412,22 @@ app.get('/dashboard', async (req, res) => {
                 <h1>FreshPod Transaction Dashboard</h1>
                 <div class="subtitle">Live payment records retrieved from Razorpay</div>
             </div>
-            <a href="/api/payments/export" class="btn">Export to CSV (Excel)</a>
+            <a href="/api/payments/export" class="btn btn-secondary">Export to CSV (Excel)</a>
         </header>
 
-        <!-- Kiosk Config Form -->
-        <div class="card" style="margin-bottom: 30px;">
-            <h2 style="margin-top: 0; margin-bottom: 15px; font-size: 1.3rem; font-weight: 600; color: #fff;">Kiosk Settings</h2>
+        <!-- Dynamic Status Alert -->
+        ${isUpdated ? `<div class="alert">Kiosk payment settings updated successfully. Cached session has been cleared.</div>` : ''}
+
+        <!-- Kiosk Settings -->
+        <div class="card settings-card">
             <form action="/api/config/amount" method="POST" class="input-group">
                 <label for="amount">Payment Price (INR):</label>
                 <input type="number" id="amount" name="amount" value="${currentAmount}" min="1" step="1" required class="input-field">
-                <button type="submit" class="btn" style="padding: 10px 20px; font-size: 0.95rem;">Update Price</button>
+                <button type="submit" class="btn">Update Price</button>
             </form>
         </div>
 
+        <!-- Transactions Table -->
         <div class="card">
             <table>
                 <thead>
