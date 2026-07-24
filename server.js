@@ -8,12 +8,11 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Enable CORS for testing
+// Enable CORS and serve static files
 app.use(cors());
-
-// Configure Express to parse JSON and Form data
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.static('public'));
 
 // Global handlers to capture any async or library crashes and log them
 process.on('unhandledRejection', (reason, promise) => {
@@ -24,29 +23,6 @@ process.on('uncaughtException', (err) => {
   console.error('CRITICAL: Uncaught Exception thrown:', err);
 });
 
-// Helper to shorten the UPI URL from Razorpay to fit in small DWIN basic graphic buffers
-function shortenUpiUrl(urlStr) {
-  try {
-    const queryString = urlStr.split('?')[1];
-    if (!queryString) return urlStr;
-
-    const params = new URLSearchParams(queryString);
-    const pa = params.get('pa');
-    const pn = params.get('pn');
-    const am = params.get('am');
-    const tr = params.get('tr');
-
-    if (pa && pn && am && tr) {
-      const shortened = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tr=${tr}`;
-      console.log(`[DEBUG] Shortened UPI URL: ${shortened} (Length: ${shortened.length} chars)`);
-      return shortened;
-    }
-  } catch (e) {
-    console.error('[DEBUG] Failed to parse UPI URL for shortening:', e);
-  }
-  return urlStr;
-}
-
 // Initialize Razorpay instance
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_TGx9X5Tby0KVB8',
@@ -55,33 +31,97 @@ const razorpay = new Razorpay({
 
 console.log(`[DEBUG] Razorpay Key ID: ${process.env.RAZORPAY_KEY_ID ? 'Loaded from .env' : 'Using default test ID'}`);
 
+// Firebase Configuration & Initialization (Web Client SDK used inside Node.js)
+const { initializeApp } = require('firebase/app');
+const { getFirestore, doc, onSnapshot } = require('firebase/firestore');
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA03ON8h3-Txnn12LsqwinTZMzDbddd1nc",
+  authDomain: "freshpod-901ed.firebaseapp.com",
+  projectId: "freshpod-901ed",
+  storageBucket: "freshpod-901ed.firebasestorage.app",
+  messagingSenderId: "209820777199",
+  appId: "1:209820777199:web:2ac6487aad0df9b521b91a",
+  measurementId: "G-K2G9M145ZH"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
+// Global states for caching the current payment link and current amount
+let currentPaymentLink = null;
+let currentAmount = process.env.QR_AMOUNT || 50;
+
+// Synchronize payment price from Firestore in real-time
+onSnapshot(doc(db, "config", "kiosk"), (snapshot) => {
+  if (snapshot.exists()) {
+    const data = snapshot.data();
+    if (data && data.amount) {
+      currentAmount = data.amount;
+      currentPaymentLink = null; // Invalidate cached payment links immediately when price changes
+      console.log(`[FIRESTORE] Price sync: active amount updated to INR ${currentAmount}. Cache reset.`);
+    }
+  }
+}, (error) => {
+  console.error('[FIRESTORE] Sync listener failed:', error);
+});
+
 // Root status endpoint
 app.get('/', (req, res) => {
   res.json({ status: 'active', service: 'FreshPod Direct Payment API' });
 });
 
-// Global states for caching the current payment link and current amount
-let currentPaymentLink = null;
-let currentAmount = process.env.QR_AMOUNT || 50;
+// Static HTML views routes
+app.get('/login', (req, res) => {
+  res.sendFile(__dirname + '/public/login.html');
+});
+
+app.get('/dashboard', (req, res) => {
+  res.sendFile(__dirname + '/public/dashboard.html');
+});
+
+// API endpoint for dashboard to fetch payments list
+app.get('/api/payments/all', async (req, res) => {
+  try {
+    console.log('[DEBUG] Querying Razorpay for payment list...');
+    const response = await razorpay.payments.all({ count: 100 });
+    res.json(response.items || []);
+  } catch (error) {
+    console.error('Failed to query payments for dashboard:', error);
+    res.status(500).json({ error: error.message || error });
+  }
+});
+
+// CSV Export Endpoint for Excel download
+app.get('/api/payments/export', async (req, res) => {
+  try {
+    console.log('[DEBUG] Querying Razorpay for exporting payments...');
+    const response = await razorpay.payments.all({ count: 100 });
+    const payments = response.items || [];
+    
+    let csv = 'Payment ID,Date,Amount (INR),Method,Status,Customer Email,Customer Contact\n';
+    payments.forEach(p => {
+      const date = new Date(p.created_at * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+      const amount = (p.amount / 100).toFixed(2);
+      const email = p.email || 'N/A';
+      const contact = p.contact || 'N/A';
+      csv += `"${p.id}","${date}",${amount},"${p.method}","${p.status}","${email}","${contact}"\n`;
+    });
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=freshpod_payments.csv');
+    res.send(csv);
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).send(`Export failed: ${error.message || error}`);
+  }
+});
 
 // Webhook Receiver Endpoint (Optional backup)
 app.post('/api/payment/webhook', (req, res) => {
   const event = req.body.event;
   console.log(`[WEBHOOK] Received event from Razorpay: ${event}`);
   res.json({ status: 'ok' });
-});
-
-// Update current payment amount from dashboard config
-app.post('/api/config/amount', (req, res) => {
-  const newAmount = parseInt(req.body.amount);
-  if (newAmount > 0) {
-    currentAmount = newAmount;
-    currentPaymentLink = null; // Invalidate current cached link to generate a new one with the updated amount
-    console.log(`[CONFIG] Payment amount updated to INR ${currentAmount}. Invalidating cached payment link...`);
-    res.redirect('/dashboard');
-  } else {
-    res.status(400).send('Invalid amount value');
-  }
 });
 
 // Create/Fetch cached Payment Link
@@ -177,326 +217,6 @@ app.get('/api/payment/status', async (req, res) => {
   } catch (error) {
     console.error(`[DEBUG] Error checking status for ID ${qr_id}:`, error.message || error);
     res.status(500).json({ error: 'Failed to fetch status from Razorpay', details: error.message || error });
-  }
-});
-
-// Render a premium administrative dashboard displaying transaction logs
-app.get('/dashboard', async (req, res) => {
-  try {
-    console.log('[DEBUG] Querying Razorpay for payment list...');
-    const response = await razorpay.payments.all({ count: 100 });
-    const payments = response.items || [];
-    const isUpdated = req.query.updated === 'true';
-
-    const rows = payments.map(p => {
-      const date = new Date(p.created_at * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-      const amount = (p.amount / 100).toFixed(2);
-      const statusClass = p.status === 'captured' ? 'captured' : (p.status === 'failed' ? 'failed' : (p.status === 'authorized' ? 'authorized' : 'other'));
-      const contact = p.contact || p.email || 'N/A';
-      return `
-        <tr>
-          <td>${date}</td>
-          <td class="tx-id">${p.id}</td>
-          <td class="amount">₹${amount}</td>
-          <td style="text-transform: capitalize;">${p.method}</td>
-          <td><span class="badge badge-${statusClass}">${p.status}</span></td>
-          <td class="contact-info">${contact}</td>
-        </tr>
-      `;
-    }).join('\n');
-
-    const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FreshPod Transaction Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-color: #f8fafc;
-            --card-bg: #ffffff;
-            --border-color: #e2e8f0;
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --accent-color: #2563eb;
-            --accent-hover: #1d4ed8;
-            --success-bg: #dcfce7;
-            --success-text: #15803d;
-            --failed-bg: #fee2e2;
-            --failed-text: #b91c1c;
-            --warning-bg: #fef3c7;
-            --warning-text: #b45309;
-        }
-        body {
-            font-family: 'Outfit', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            margin: 0;
-            padding: 40px 20px;
-            min-height: 100vh;
-            -webkit-font-smoothing: antialiased;
-        }
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-        }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
-        h1 {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin: 0;
-            color: var(--text-primary);
-            letter-spacing: -0.5px;
-        }
-        .subtitle {
-            color: var(--text-secondary);
-            font-size: 0.95rem;
-            margin-top: 4px;
-            font-family: 'Inter', sans-serif;
-        }
-        .btn {
-            background-color: var(--accent-color);
-            color: #ffffff;
-            border: none;
-            padding: 10px 20px;
-            font-size: 0.9rem;
-            font-weight: 600;
-            border-radius: 8px;
-            cursor: pointer;
-            text-decoration: none;
-            transition: background-color 0.2s ease, transform 0.1s ease;
-            display: inline-flex;
-            align-items: center;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-        .btn:hover {
-            background-color: var(--accent-hover);
-        }
-        .btn-secondary {
-            background-color: #ffffff;
-            color: var(--text-secondary);
-            border: 1px solid #cbd5e1;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-        .btn-secondary:hover {
-            background-color: #f1f5f9;
-            color: var(--text-primary);
-        }
-        .card {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
-            overflow-x: auto;
-        }
-        .settings-card {
-            margin-bottom: 24px;
-        }
-        .alert {
-            background-color: var(--success-bg);
-            color: var(--success-text);
-            padding: 12px 18px;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            margin-bottom: 24px;
-            border: 1px solid rgba(21, 128, 61, 0.15);
-            font-family: 'Inter', sans-serif;
-        }
-        .input-group {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .input-group label {
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-            font-weight: 600;
-        }
-        .input-field {
-            background-color: #ffffff;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            padding: 8px 12px;
-            color: var(--text-primary);
-            font-size: 0.95rem;
-            width: 100px;
-            font-family: 'Inter', sans-serif;
-            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
-            transition: border-color 0.15s ease;
-        }
-        .input-field:focus {
-            outline: none;
-            border-color: var(--accent-color);
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            text-align: left;
-            font-family: 'Inter', sans-serif;
-        }
-        th {
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-secondary);
-            padding: 14px 18px;
-            border-bottom: 1px solid var(--border-color);
-            background-color: #f8fafc;
-            font-weight: 600;
-        }
-        td {
-            padding: 14px 18px;
-            border-bottom: 1px solid var(--border-color);
-            font-size: 0.9rem;
-            color: var(--text-primary);
-        }
-        tr:last-child td {
-            border-bottom: none;
-        }
-        tr:hover td {
-            background-color: #f8fafc;
-        }
-        .tx-id {
-            font-family: monospace;
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-        }
-        .badge {
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        .badge-captured {
-            background-color: var(--success-bg);
-            color: var(--success-text);
-        }
-        .badge-failed {
-            background-color: var(--failed-bg);
-            color: var(--failed-text);
-        }
-        .badge-authorized {
-            background-color: var(--warning-bg);
-            color: var(--warning-text);
-        }
-        .badge-other {
-            background-color: #f1f5f9;
-            color: var(--text-secondary);
-        }
-        .amount {
-            font-family: 'Outfit', sans-serif;
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-        .contact-info {
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header>
-            <div>
-                <h1>FreshPod Transaction Dashboard</h1>
-                <div class="subtitle">Live payment records retrieved from Razorpay</div>
-            </div>
-            <a href="/api/payments/export" class="btn btn-secondary">Export to CSV (Excel)</a>
-        </header>
-
-        <!-- Dynamic Status Alert -->
-        ${isUpdated ? `<div class="alert">Kiosk payment settings updated successfully. Cached session has been cleared.</div>` : ''}
-
-        <!-- Kiosk Settings -->
-        <div class="card settings-card">
-            <form action="/api/config/amount" method="POST" class="input-group" onsubmit="handleSubmit(event)">
-                <label for="amount">Payment Price (INR):</label>
-                <input type="number" id="amount" name="amount" value="${currentAmount}" min="1" step="1" required class="input-field">
-                <button type="submit" class="btn">Update Price</button>
-            </form>
-        </div>
-
-        <!-- Transactions Table -->
-        <div class="card">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date & Time</th>
-                        <th>Payment ID</th>
-                        <th>Amount</th>
-                        <th>Method</th>
-                        <th>Status</th>
-                        <th>Contact</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rows}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    
-    <script>
-        function handleSubmit(event) {
-            const form = event.target;
-            const submitBtn = form.querySelector('button[type="submit"]');
-            const inputField = form.querySelector('#amount');
-            
-            // Disable button and change state visual indicator
-            submitBtn.disabled = true;
-            submitBtn.innerText = 'Updating...';
-            submitBtn.style.opacity = '0.7';
-            submitBtn.style.cursor = 'not-allowed';
-            
-            // Prevent changing amount mid-flight but keep value active for POST body inclusion
-            inputField.readOnly = true;
-            inputField.style.opacity = '0.7';
-        }
-    </script>
-</body>
-</html>
-    `;
-    res.setHeader('Content-Type', 'text/html');
-    res.send(html);
-  } catch (error) {
-    console.error('Dashboard error:', error);
-    res.status(500).send(`<h1>Error</h1><p>Failed to query Razorpay API: ${error.message || error}</p>`);
-  }
-});
-
-// CSV Export Endpoint for Excel download
-app.get('/api/payments/export', async (req, res) => {
-  try {
-    console.log('[DEBUG] Querying Razorpay for exporting payments...');
-    const response = await razorpay.payments.all({ count: 100 });
-    const payments = response.items || [];
-    
-    let csv = 'Payment ID,Date,Amount (INR),Method,Status,Customer Email,Customer Contact\n';
-    payments.forEach(p => {
-      const date = new Date(p.created_at * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-      const amount = (p.amount / 100).toFixed(2);
-      const email = p.email || 'N/A';
-      const contact = p.contact || 'N/A';
-      csv += `"${p.id}","${date}",${amount},"${p.method}","${p.status}","${email}","${contact}"\n`;
-    });
-    
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=freshpod_payments.csv');
-    res.send(csv);
-  } catch (error) {
-    console.error('Export error:', error);
-    res.status(500).send(`Export failed: ${error.message || error}`);
   }
 });
 

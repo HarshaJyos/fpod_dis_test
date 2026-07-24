@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FreshPod - Admin Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --accent-color: #2563eb;
+            --accent-hover: #1d4ed8;
+            --error-bg: #fee2e2;
+            --error-text: #b91c1c;
+        }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+        .login-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            box-sizing: border-box;
+        }
+        h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin: 0 0 8px 0;
+            text-align: center;
+            letter-spacing: -0.5px;
+        }
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-align: center;
+            margin-bottom: 24px;
+            font-family: 'Inter', sans-serif;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .input-field {
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            font-family: 'Inter', sans-serif;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+            transition: border-color 0.15s ease;
+            box-sizing: border-box;
+            width: 100%;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+        .btn {
+            background-color: var(--accent-color);
+            color: #ffffff;
+            border: none;
+            padding: 12px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            width: 100%;
+            margin-top: 10px;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        .btn:hover {
+            background-color: var(--accent-hover);
+        }
+        .alert {
+            background-color: var(--error-bg);
+            color: var(--error-text);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 20px;
+            border: 1px solid rgba(185, 28, 28, 0.15);
+            font-family: 'Inter', sans-serif;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>FreshPod Admin Console</h1>
+        <div class="subtitle">Log in to manage configurations and view transactions</div>
+        
+        <div id="errorAlert" class="alert">Invalid email or password.</div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" required class="input-field" placeholder="admin@coreblock.in">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" required class="input-field" placeholder="••••••••">
+            </div>
+            <button type="submit" id="loginBtn" class="btn">Log In</button>
+        </form>
+    </div>
+
+    <!-- Firebase Script Configuration -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA03ON8h3-Txnn12LsqwinTZMzDbddd1nc",
+            authDomain: "freshpod-901ed.firebaseapp.com",
+            projectId: "freshpod-901ed",
+            storageBucket: "freshpod-901ed.firebasestorage.app",
+            messagingSenderId: "209820777199",
+            appId: "1:209820777199:web:2ac6487aad0df9b521b91a",
+            measurementId: "G-K2G9M145ZH"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        // Redirect if already logged in
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                window.location.href = "/dashboard";
+            }
+        });
+
+        const loginForm = document.getElementById("loginForm");
+        const emailInput = document.getElementById("email");
+        const passwordInput = document.getElementById("password");
+        const loginBtn = document.getElementById("loginBtn");
+        const errorAlert = document.getElementById("errorAlert");
+
+        loginForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            errorAlert.style.display = "none";
+            loginBtn.disabled = true;
+            loginBtn.innerText = "Logging in...";
+
+            try {
+                await signInWithEmailAndPassword(auth, emailInput.value, passwordInput.value);
+                window.location.href = "/dashboard";
+            } catch (error) {
+                console.error("Login failed:", error);
+                errorAlert.innerText = error.message.includes("auth/invalid-credential") 
+                    ? "Invalid email or password." 
+                    : "Failed to connect to authentication server.";
+                errorAlert.style.display = "block";
+                loginBtn.disabled = false;
+                loginBtn.innerText = "Log In";
+            }
+        });
+    </script>
+</body>
+</html>
