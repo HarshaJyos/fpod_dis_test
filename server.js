@@ -420,7 +420,7 @@ app.get('/dashboard', async (req, res) => {
 
         <!-- Kiosk Settings -->
         <div class="card settings-card">
-            <form action="/api/config/amount" method="POST" class="input-group">
+            <form action="/api/config/amount" method="POST" class="input-group" onsubmit="handleSubmit(event)">
                 <label for="amount">Payment Price (INR):</label>
                 <input type="number" id="amount" name="amount" value="${currentAmount}" min="1" step="1" required class="input-field">
                 <button type="submit" class="btn">Update Price</button>
@@ -446,6 +446,24 @@ app.get('/dashboard', async (req, res) => {
             </table>
         </div>
     </div>
+    
+    <script>
+        function handleSubmit(event) {
+            const form = event.target;
+            const submitBtn = form.querySelector('button[type="submit"]');
+            const inputField = form.querySelector('#amount');
+            
+            // Disable button and change state visual indicator
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Updating...';
+            submitBtn.style.opacity = '0.7';
+            submitBtn.style.cursor = 'not-allowed';
+            
+            // Prevent changing amount mid-flight but keep value active for POST body inclusion
+            inputField.readOnly = true;
+            inputField.style.opacity = '0.7';
+        }
+    </script>
 </body>
 </html>
     `;
