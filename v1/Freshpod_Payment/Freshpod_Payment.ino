@@ -201,13 +201,7 @@ void loop() {
       pollPaymentStatus();
     }
 
-    // 3. Expiration/Timeout (Refresh QR code directly without welcome screen flash)
-    if (millis() - stateTimer >= QR_TIMEOUT_MS) {
-      Serial.println("Payment QR code expired. Refreshing QR code directly...");
-      dgusShowLoadingIndicator();
-      stateTimer = millis();
-      currentState = STATE_REQUEST_PAYMENT;
-    }
+
     break;
 
   case STATE_CLEANING:
