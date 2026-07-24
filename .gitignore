@@ -11,3 +11,6 @@ Newcode_Mag_20.09.2025.ino
 # Temporary or system files
 .DS_Store
 Thumbs.db
+
+# Version 2 projects (ignored in V1 repository, separately tracked)
+/v2/
